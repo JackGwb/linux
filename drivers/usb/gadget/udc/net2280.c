@@ -516,8 +516,8 @@ static int net2280_disable(struct usb_ep *_ep)
 	unsigned long		flags;
 
 	ep = container_of(_ep, struct net2280_ep, ep);
-	if (!_ep || !ep->desc || _ep->name == ep0name) {
-		pr_err("%s: Invalid ep=%p or ep->desc\n", __func__, _ep);
+	if (!_ep || _ep->name == ep0name) {
+		pr_err("%s: Invalid ep=%p\n", __func__, _ep);
 		return -EINVAL;
 	}
 	spin_lock_irqsave(&ep->dev->lock, flags);
@@ -1545,7 +1545,7 @@ static int net2280_pullup(struct usb_gadget *_gadget, int is_on)
 		writel(tmp | BIT(USB_DETECT_ENABLE), &dev->usb->usbctl);
 	} else {
 		writel(tmp & ~BIT(USB_DETECT_ENABLE), &dev->usb->usbctl);
-		stop_activity(dev, dev->driver);
+		stop_activity(dev, NULL);
 	}
 
 	spin_unlock_irqrestore(&dev->lock, flags);
@@ -2279,7 +2279,7 @@ static void usb_reinit_338x(struct net2280 *dev)
 	 * - It is safe to set for all connection speeds; all chip revisions.
 	 * - R-M-W to leave other bits undisturbed.
 	 * - Reference PLX TT-7372
-	*/
+	 */
 	val = readl(&dev->ll_chicken_reg->ll_tsn_chicken_bit);
 	val |= BIT(RECOVERY_IDLE_TO_RECOVER_FMW);
 	writel(val, &dev->ll_chicken_reg->ll_tsn_chicken_bit);
@@ -2466,8 +2466,11 @@ static void stop_activity(struct net2280 *dev, struct usb_gadget_driver *driver)
 		nuke(&dev->ep[i]);
 
 	/* report disconnect; the driver is already quiesced */
-	if (driver)
+	if (driver) {
+		spin_unlock(&dev->lock);
 		driver->disconnect(&dev->gadget);
+		spin_lock(&dev->lock);
+	}
 
 	usb_reinit(dev);
 }
@@ -3341,6 +3344,8 @@ next_endpoints:
 		BIT(PCI_RETRY_ABORT_INTERRUPT))
 
 static void handle_stat1_irqs(struct net2280 *dev, u32 stat)
+__releases(dev->lock)
+__acquires(dev->lock)
 {
 	struct net2280_ep	*ep;
 	u32			tmp, num, mask, scratch;
@@ -3381,12 +3386,14 @@ static void handle_stat1_irqs(struct net2280 *dev, u32 stat)
 			if (disconnect || reset) {
 				stop_activity(dev, dev->driver);
 				ep0_start(dev);
+				spin_unlock(&dev->lock);
 				if (reset)
 					usb_gadget_udc_reset
 						(&dev->gadget, dev->driver);
 				else
 					(dev->driver->disconnect)
 						(&dev->gadget);
+				spin_lock(&dev->lock);
 				return;
 			}
 		}
@@ -3405,6 +3412,7 @@ static void handle_stat1_irqs(struct net2280 *dev, u32 stat)
 	tmp = BIT(SUSPEND_REQUEST_CHANGE_INTERRUPT);
 	if (stat & tmp) {
 		writel(tmp, &dev->regs->irqstat1);
+		spin_unlock(&dev->lock);
 		if (stat & BIT(SUSPEND_REQUEST_INTERRUPT)) {
 			if (dev->driver->suspend)
 				dev->driver->suspend(&dev->gadget);
@@ -3415,6 +3423,7 @@ static void handle_stat1_irqs(struct net2280 *dev, u32 stat)
 				dev->driver->resume(&dev->gadget);
 			/* at high speed, note erratum 0133 */
 		}
+		spin_lock(&dev->lock);
 		stat &= ~tmp;
 	}
 

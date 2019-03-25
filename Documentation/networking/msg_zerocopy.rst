@@ -7,7 +7,7 @@ Intro
 =====
 
 The MSG_ZEROCOPY flag enables copy avoidance for socket send calls.
-The feature is currently implemented for TCP sockets.
+The feature is currently implemented for TCP and UDP sockets.
 
 
 Opportunity and Caveats
@@ -71,7 +71,6 @@ this flag, a process must first signal intent by setting a socket option:
 
 	if (setsockopt(fd, SOL_SOCKET, SO_ZEROCOPY, &one, sizeof(one)))
 		error(1, errno, "setsockopt zerocopy");
-
 
 Transmission
 ------------

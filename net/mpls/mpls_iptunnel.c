@@ -183,8 +183,8 @@ static int mpls_build_state(struct nlattr *nla,
 			   &n_labels, NULL, extack))
 		return -EINVAL;
 
-	newts = lwtunnel_state_alloc(sizeof(*tun_encap_info) +
-				     n_labels * sizeof(u32));
+	newts = lwtunnel_state_alloc(struct_size(tun_encap_info, label,
+						 n_labels));
 	if (!newts)
 		return -ENOMEM;
 
@@ -224,7 +224,7 @@ static int mpls_fill_encap_info(struct sk_buff *skb,
 				struct lwtunnel_state *lwtstate)
 {
 	struct mpls_iptunnel_encap *tun_encap_info;
-	
+
 	tun_encap_info = mpls_lwtunnel_encap(lwtstate);
 
 	if (nla_put_labels(skb, MPLS_IPTUNNEL_DST, tun_encap_info->labels,
